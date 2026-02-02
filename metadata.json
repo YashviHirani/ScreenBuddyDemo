@@ -1,0 +1,7 @@
+{
+  "name": "Screen Buddy",
+  "description": "A proactive AI assistant that analyzes your screen activity to reduce cognitive load and friction.",
+  "requestFramePermissions": [
+    "display-capture"
+  ]
+}

@@ -25,6 +25,10 @@ function App() {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [goal, setGoal] = useState('');
   
+  // Audio / TTS State
+  const [isAudioEnabled, setIsAudioEnabled] = useState(false);
+  const lastSpokenRef = useRef('');
+  
   // API Key State
   const [userApiKey, setUserApiKey] = useState(() => {
     if (typeof window !== 'undefined') {
@@ -55,6 +59,29 @@ function App() {
         setShowKeyModal(true);
     }
   }, [quotaExceeded]);
+
+  // TTS Effect
+  useEffect(() => {
+    if (!isAudioEnabled || !currentAnalysis?.microAssist) {
+        // If disabled or no content, do nothing (or cancel if you want to stop abruptly)
+        return;
+    }
+
+    // Only speak if the message is different to avoid repetition loops
+    // or if enough time has passed (optional, but checking string equality is safer for now)
+    if (currentAnalysis.microAssist !== lastSpokenRef.current) {
+        // Cancel any currently playing speech to avoid queue pileup
+        window.speechSynthesis.cancel();
+        
+        const utterance = new SpeechSynthesisUtterance(currentAnalysis.microAssist);
+        
+        // Optional: configure voice/rate/pitch
+        utterance.rate = 1.0; 
+        
+        window.speechSynthesis.speak(utterance);
+        lastSpokenRef.current = currentAnalysis.microAssist;
+    }
+  }, [currentAnalysis, isAudioEnabled]);
 
   const handleSaveKey = (key: string) => {
     setUserApiKey(key);
@@ -133,10 +160,13 @@ function App() {
       intervalRef.current = window.setInterval(performAnalysis, 5000);
     } else {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      // Stop speaking when capture stops
+      window.speechSynthesis.cancel();
     }
 
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
+      window.speechSynthesis.cancel();
     };
   }, [captureState.isSharing, performAnalysis]);
 
@@ -162,6 +192,8 @@ function App() {
           onStop={stopCapture}
           onTogglePip={togglePip}
           isPipActive={isPipActive}
+          isAudioEnabled={isAudioEnabled}
+          toggleAudio={() => setIsAudioEnabled(!isAudioEnabled)}
         />
       )}
 
@@ -170,16 +202,15 @@ function App() {
         {/* 
            Capture Infrastructure 
            1. Capture Video/Canvas: Must maintain aspect ratio but can be invisible. 
-              Using 'opacity-0' and fixed positioning. Do NOT use display:none or w-1 h-1.
-           2. PiP Video/Canvas: Used for generating the floating overlay stream.
+           2. PiP Video/Canvas: Updated aspect ratio to 4:3 (w-96 h-72 approx) for better text fit.
         */}
         <div className="fixed top-0 left-0 opacity-0 pointer-events-none -z-50">
            {/* Primary Capture Elements */}
            <video ref={videoRef} autoPlay playsInline muted className="w-auto h-auto" />
            <canvas ref={canvasRef} />
            
-           {/* Floating Overlay Elements */}
-           <video ref={pipVideoRef} autoPlay playsInline muted className="w-96 h-32" />
+           {/* Floating Overlay Elements - 4:3 Aspect Ratio for Text */}
+           <video ref={pipVideoRef} autoPlay playsInline muted className="w-[800px] h-[600px]" />
            <canvas ref={pipCanvasRef} />
         </div>
 

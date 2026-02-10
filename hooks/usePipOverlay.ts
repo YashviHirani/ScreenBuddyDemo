@@ -14,8 +14,9 @@ export const usePipOverlay = (currentResult: AnalysisResult | null) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    const width = 600;
-    const height = 200;
+    // Increased resolution for better text visibility (4:3 aspect ratio)
+    const width = 800; 
+    const height = 600; 
     
     // Set explicit resolution
     if (canvas.width !== width) canvas.width = width;
@@ -27,10 +28,10 @@ export const usePipOverlay = (currentResult: AnalysisResult | null) => {
 
     if (!currentResult) {
       ctx.fillStyle = '#6B7280';
-      ctx.font = 'bold 24px sans-serif';
-      ctx.fillText('Screen Buddy Active', 20, 50);
-      ctx.font = '20px sans-serif';
-      ctx.fillText('Analyzing...', 20, 90);
+      ctx.font = 'bold 32px sans-serif';
+      ctx.fillText('Screen Buddy Active', 40, 300);
+      ctx.font = '24px sans-serif';
+      ctx.fillText('Waiting for analysis...', 40, 350);
       return;
     }
 
@@ -58,41 +59,54 @@ export const usePipOverlay = (currentResult: AnalysisResult | null) => {
         break;
     }
 
-    // Draw Status Bar
+    // Draw Background
     ctx.fillStyle = bgColor;
     ctx.fillRect(0, 0, width, height);
     
     // Left Accent Bar
     ctx.fillStyle = accentColor;
-    ctx.fillRect(0, 0, 10, height);
+    ctx.fillRect(0, 0, 20, height);
 
-    // State Text
+    // State Text (Top Left)
     ctx.fillStyle = accentColor;
-    ctx.font = 'bold 20px sans-serif';
-    ctx.fillText(currentResult.state.toUpperCase(), 30, 40);
+    ctx.font = 'bold 32px sans-serif';
+    ctx.fillText(currentResult.state.toUpperCase(), 50, 60);
 
-    // Micro Assist Text (Main Content)
+    // Micro Assist Text (Main Content) - Improved wrapping
     ctx.fillStyle = '#ffffff';
-    ctx.font = 'bold 28px sans-serif';
+    ctx.font = 'bold 40px sans-serif'; // Larger font
     
-    // Simple text wrapping
     const text = currentResult.microAssist;
-    const maxCharsPerLine = 40;
+    const maxCharsPerLine = 35; // Adjusted for larger font
     const words = text.split(' ');
     let line = '';
-    let y = 90;
+    let y = 140; // Start lower down
+    const lineHeight = 55;
 
     for(let n = 0; n < words.length; n++) {
       const testLine = line + words[n] + ' ';
-      if (testLine.length > maxCharsPerLine && n > 0) {
-        ctx.fillText(line, 30, y);
+      const metrics = ctx.measureText(testLine);
+      const testWidth = metrics.width;
+      
+      // Calculate width based on canvas width minus padding (50px left + 40px right)
+      if (testWidth > (width - 90) && n > 0) {
+        ctx.fillText(line, 50, y);
         line = words[n] + ' ';
-        y += 40;
+        y += lineHeight;
       } else {
         line = testLine;
       }
     }
-    ctx.fillText(line, 30, y);
+    ctx.fillText(line, 50, y);
+
+    // Observation (Smaller text at bottom)
+    if (y < height - 60) {
+        ctx.fillStyle = '#9ca3af'; // gray-400
+        ctx.font = 'italic 24px sans-serif';
+        // Wrap observation if needed, but usually short
+        const obs = "Obs: " + currentResult.observation;
+        ctx.fillText(obs, 50, height - 30);
+    }
 
   }, [currentResult]);
 

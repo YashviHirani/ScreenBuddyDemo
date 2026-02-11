@@ -1,25 +1,19 @@
 import { GoogleGenAI } from "@google/genai";
 import { AnalysisState, ConfidenceLevel, AnalysisResult } from '../types';
 
-// Dynamic system instruction based on user goal
+// Optimized system instruction to save tokens
 const getSystemInstruction = (goal: string) => `
-You are Screen Buddy, a proactive AI assistant.
-User's Goal: "${goal || 'General Productivity'}"
-
-Analyze the user's screen activity based on this goal.
-
-1. **CRITICAL CHECK**: If the user has ALREADY achieved the goal (e.g., the specific website is loaded, the video is playing, the text is written), mark State as "Goal Achieved". Do not give further instructions if the goal is done.
-2. **Compare** the visible screen content with the User's Goal.
-3. If the user is on a website or application that is unrelated to the goal (e.g., watching entertainment videos, social media, gaming) and NOT part of the expected workflow, mark State as "Distracted".
-4. If the user is working on the goal but seems stuck, seeing errors, or hesitant, mark State as "Friction Detected" or "Error Detected".
-5. If the user is visibly progressing towards the goal, mark State as "Smooth".
-6. Provide a specific, short "Micro-Assist" step telling the user exactly what to do next. If "Goal Achieved", say "Great job! Goal completed."
-
-Output format (STRICT):
-State: Goal Achieved / Smooth / Friction Detected / Error Detected / Distracted
-Observation: (1 sentence description of screen content)
-Micro-Assist: (1 clear, direct instruction on what to do now)
-Confidence: High / Medium / Low
+Role: Productivity AI. User Goal: "${goal || 'Work'}".
+Analyze screen vs Goal.
+1. DONE? -> State: Goal Achieved.
+2. UNRELATED app/site? -> State: Distracted.
+3. STUCK/ERROR? -> State: Friction Detected.
+4. WORKING? -> State: Smooth.
+Output:
+State: [Category]
+Observation: [1 sentence]
+Micro-Assist: [1 short command]
+Confidence: High/Medium/Low
 `;
 
 export const analyzeScreenCapture = async (base64Image: string, goal: string, apiKey?: string): Promise<Omit<AnalysisResult, 'timestamp'>> => {
@@ -36,8 +30,6 @@ export const analyzeScreenCapture = async (base64Image: string, goal: string, ap
     }
 
     const ai = new GoogleGenAI({ apiKey: key });
-
-    // We clean the base64 string to just get the data
     const cleanBase64 = base64Image.replace(/^data:image\/(png|jpeg|jpg);base64,/, '');
 
     const response = await ai.models.generateContent({
@@ -51,60 +43,80 @@ export const analyzeScreenCapture = async (base64Image: string, goal: string, ap
             },
           },
           {
-            text: "Analyze this screen relative to my goal."
+            text: "Analyze screen."
           }
         ],
       },
       config: {
         systemInstruction: getSystemInstruction(goal),
         temperature: 0.4,
-        maxOutputTokens: 500,
+        maxOutputTokens: 150,
       },
     });
 
+    // Safety check: sometimes error messages come as valid text responses
     const text = response.text || '';
+    if (text.toLowerCase().includes("quota") || text.toLowerCase().includes("exhausted")) {
+       throw { isQuotaError: true, message: text }; // Throw to trigger rotation
+    }
+
     return parseGeminiResponse(text);
 
   } catch (error: any) {
-    console.error("Gemini Analysis Error:", error);
+    // ---------------------------------------------------------
+    // AGGRESSIVE ERROR PARSING FOR QUOTA DETECTION
+    // ---------------------------------------------------------
     
-    let errorMsg = "Please check your network connection.";
-    let errString = "";
-
-    // Robustly extract error string whether it's an Error object, JSON object, or string
+    // 1. Convert any error format (Object, Error, String) into a searchable string
+    let fullErrorString = "";
+    
     try {
-        if (typeof error === 'string') {
-            errString = error;
-        } else if (error instanceof Error) {
-            errString = error.message || error.toString();
-        } else {
-            // Try to stringify object to catch nested properties like error.error.code
-            errString = JSON.stringify(error);
-        }
+       // If it's a standard Error object, get message and stack
+       if (error instanceof Error) {
+           fullErrorString = `${error.message} ${error.stack || ''}`;
+       } 
+       // If it's a JSON object (like the SDK often returns), stringify it
+       else if (typeof error === 'object') {
+           fullErrorString = JSON.stringify(error);
+       } 
+       // Fallback
+       else {
+           fullErrorString = String(error);
+       }
     } catch (e) {
-        errString = String(error);
+       fullErrorString = "Unknown error parsing failed";
     }
-    
-    errString = errString.toLowerCase();
 
-    // Check for specific keywords in the stringified error
-    if (errString.includes("quota") || errString.includes("429") || errString.includes("exhausted")) {
-        errorMsg = "Quota Exceeded. Please use a new API Key.";
-    } else if (errString.includes("api key") || errString.includes("forbidden") || errString.includes("403") || errString.includes("permission denied")) {
-        errorMsg = "Invalid API Key. Please check your key.";
+    fullErrorString = fullErrorString.toLowerCase();
+
+    // 2. Define keywords that indicate we should switch keys
+    const isQuota = 
+        fullErrorString.includes("quota") || 
+        fullErrorString.includes("429") || 
+        fullErrorString.includes("resource_exhausted") || 
+        fullErrorString.includes("exhausted") ||
+        fullErrorString.includes("limit") || // rate limit
+        fullErrorString.includes("failed to call the gemini api"); // Specific user error
+
+    if (isQuota) {
+        // We throw a specific object that performAnalysis can catch to trigger immediate rotation
+        throw { isQuotaError: true, originalError: error };
     }
+
+    // For non-quota errors (Network, parsing, etc), we return a graceful error state
+    // Log it so user can debug if needed
+    console.error("Non-quota Gemini Error:", fullErrorString);
 
     return {
       state: AnalysisState.ERROR,
       observation: "System unavailable.",
-      microAssist: errorMsg,
+      microAssist: "Connection error. Retrying...",
       confidence: ConfidenceLevel.LOW
     };
   }
 };
 
 const parseGeminiResponse = (text: string): Omit<AnalysisResult, 'timestamp'> => {
-  // Regex to extract fields robustly
   const stateRegex = /(?:State):\s*(.+)/i;
   const observationRegex = /(?:Observation):\s*(.+)/i;
   const microAssistRegex = /(?:Micro-Assist):\s*(.+)/i;
@@ -133,8 +145,8 @@ const parseGeminiResponse = (text: string): Omit<AnalysisResult, 'timestamp'> =>
 
   return {
     state,
-    observation: observationMatch ? observationMatch[1].trim() : "No clear observation.",
-    microAssist: microAssistMatch ? microAssistMatch[1].trim() : "Keep going.",
+    observation: observationMatch ? observationMatch[1].trim() : "Analyzing...",
+    microAssist: microAssistMatch ? microAssistMatch[1].trim() : "Hold on...",
     confidence,
   };
 };

@@ -1,17 +1,23 @@
 import React, { useState } from 'react';
 
 interface ApiKeyModalProps {
-  onSave: (key: string) => void;
+  onSave: (keys: string[]) => void;
   onCancel?: () => void;
   isError?: boolean;
 }
 
 export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onSave, onCancel, isError }) => {
-  const [inputKey, setInputKey] = useState('');
+  const [inputContent, setInputContent] = useState('');
 
   const handleSave = () => {
-    if (inputKey.trim()) {
-      onSave(inputKey.trim());
+    // Parse keys from textarea (split by newlines, commas, spaces)
+    const keys = inputContent
+      .split(/[\n, ]+/)
+      .map(k => k.trim())
+      .filter(k => k.length > 0);
+
+    if (keys.length > 0) {
+      onSave(keys);
     }
   };
 
@@ -25,7 +31,7 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onSave, onCancel, isEr
             <svg className="w-5 h-5 text-red-400 animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
             </svg>
-            <p className="text-sm font-bold text-red-400">Quota Exceeded. Please update your key.</p>
+            <p className="text-sm font-bold text-red-400">All keys exhausted. Please add new keys.</p>
           </div>
         )}
 
@@ -37,13 +43,10 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onSave, onCancel, isEr
               </svg>
            </div>
            <h2 className="text-xl font-bold text-white">
-             {isError ? 'Update API Key' : 'Configure Screen Buddy'}
+             {isError ? 'Update API Keys' : 'Configure API Key Pool'}
            </h2>
            <p className="mt-2 text-sm text-gray-400 leading-relaxed">
-             {isError 
-               ? "The current API key has run out of quota. Please enter a new Google Gemini API Key to continue."
-               : "To provide proactive AI assistance, Screen Buddy requires your Google Gemini API Key. This key is stored locally on your device."
-             }
+             Add multiple Google Gemini API Keys (one per line). Screen Buddy will automatically rotate through them to ensure uninterrupted service and faster performance.
            </p>
         </div>
 
@@ -51,25 +54,25 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onSave, onCancel, isEr
         <div className="p-6 space-y-4 bg-gray-900">
            <div>
              <label className="block text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
-               Enter Gemini API Key
+               Paste API Keys (One per line)
              </label>
-             <input 
-               type="password"
-               value={inputKey}
-               onChange={(e) => setInputKey(e.target.value)}
-               placeholder="AIzaSy..."
-               className={`w-full bg-gray-950 border text-white rounded-lg px-4 py-3 outline-none transition-all font-mono text-sm placeholder-gray-700 ${isError ? 'border-red-500/50 focus:ring-red-500 focus:border-red-500' : 'border-gray-700 focus:ring-indigo-500 focus:border-indigo-500 ring-2 ring-transparent'}`}
+             <textarea 
+               value={inputContent}
+               onChange={(e) => setInputContent(e.target.value)}
+               placeholder={`AIzaSy...1\nAIzaSy...2\nAIzaSy...3`}
+               rows={6}
+               className={`w-full bg-gray-950 border text-white rounded-lg px-4 py-3 outline-none transition-all font-mono text-xs placeholder-gray-700 resize-none ${isError ? 'border-red-500/50 focus:ring-red-500 focus:border-red-500' : 'border-gray-700 focus:ring-indigo-500 focus:border-indigo-500 ring-2 ring-transparent'}`}
                autoFocus
              />
              <div className="mt-3 flex justify-between items-center">
-               <span className="text-xs text-gray-600">Keys are never sent to our servers.</span>
+               <span className="text-xs text-gray-600">Keys stored locally. Never sent to us.</span>
                <a 
                  href="https://aistudio.google.com/app/apikey" 
                  target="_blank" 
                  rel="noreferrer"
                  className="text-xs font-medium text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1"
                >
-                 Get a free key
+                 Get free keys
                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                  </svg>
@@ -90,16 +93,16 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onSave, onCancel, isEr
           )}
           <button
             onClick={handleSave}
-            disabled={!inputKey.trim()}
+            disabled={!inputContent.trim()}
             className={`px-6 py-2.5 rounded-lg font-bold text-sm transition-all transform flex items-center gap-2 ${
-               !inputKey.trim() 
+               !inputContent.trim() 
                  ? 'bg-gray-800 text-gray-600 cursor-not-allowed' 
                  : isError 
                     ? 'bg-red-600 text-white hover:bg-red-500 shadow-lg shadow-red-500/20 active:scale-95'
                     : 'bg-indigo-600 text-white hover:bg-indigo-500 shadow-lg shadow-indigo-500/25 active:scale-95'
             }`}
           >
-            {isError ? 'Update & Resume' : 'Save Key'}
+            {isError ? 'Update & Resume' : 'Save Keys'}
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 7l5 5m0 0l-5 5m5-5H6" />
             </svg>

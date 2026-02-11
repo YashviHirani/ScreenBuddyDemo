@@ -39,16 +39,33 @@ export const useScreenCapture = () => {
       });
 
       // Handle stream stop (e.g. user clicks "Stop sharing" in browser UI)
-      stream.getVideoTracks()[0].onended = () => {
-        stopCapture();
-      };
+      const track = stream.getVideoTracks()[0];
+      if (track) {
+          track.onended = () => {
+            stopCapture();
+          };
+      }
 
     } catch (err: any) {
       console.error("Error starting screen capture:", err);
+      
+      let errorMessage = "Failed to share screen. Please try again.";
+
+      // Handle specific error cases
+      if (err.name === 'NotAllowedError') {
+         errorMessage = "Permission denied. You must grant screen recording permissions.";
+      } 
+      else if (err.message && (err.message.includes('permissions policy') || err.message.includes('denied by system'))) {
+         errorMessage = "Screen sharing blocked by browser environment. Try opening this app in a new tab or window.";
+      }
+      else if (err.name === 'NotFoundError') {
+         errorMessage = "No screen video source found.";
+      }
+
       setCaptureState(prev => ({
         ...prev,
         isSharing: false,
-        error: "Failed to share screen. Please try again.",
+        error: errorMessage,
       }));
     }
   }, []);

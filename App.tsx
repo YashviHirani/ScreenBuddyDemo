@@ -29,31 +29,36 @@ function App() {
   const [isAudioEnabled, setIsAudioEnabled] = useState(false);
   const lastSpokenRef = useRef('');
   
-  // API Key State
-  const [userApiKey, setUserApiKey] = useState(() => {
+  // API Key Rotation State
+  const [apiKeys, setApiKeys] = useState<string[]>(() => {
     if (typeof window !== 'undefined') {
-        return localStorage.getItem('screen_buddy_api_key') || '';
+        const stored = localStorage.getItem('screen_buddy_api_keys');
+        if (stored) {
+            try { return JSON.parse(stored); } catch (e) { console.error(e); }
+        }
+        const old = localStorage.getItem('screen_buddy_api_key');
+        if (old) return [old];
     }
-    return '';
+    return [];
   });
-  const [quotaExceeded, setQuotaExceeded] = useState(false);
+  
+  const [currentKeyIndex, setCurrentKeyIndex] = useState(0);
+  const [quotaExceeded, setQuotaExceeded] = useState(false); 
   const [showKeyModal, setShowKeyModal] = useState(false);
 
   // Hook for Floating Overlay (PiP)
   const { pipVideoRef, pipCanvasRef, togglePip, isPipActive } = usePipOverlay(currentAnalysis);
 
-  // Persist key changes
+  // Persist keys changes
   useEffect(() => {
     if (typeof window !== 'undefined') {
-        localStorage.setItem('screen_buddy_api_key', userApiKey);
+        localStorage.setItem('screen_buddy_api_keys', JSON.stringify(apiKeys));
     }
-    // Initial check on mount
-    if (!userApiKey) {
+    if (apiKeys.length === 0) {
         setShowKeyModal(true);
     }
-  }, [userApiKey]);
+  }, [apiKeys]);
   
-  // Watch for quota errors
   useEffect(() => {
     if (quotaExceeded) {
         setShowKeyModal(true);
@@ -63,37 +68,28 @@ function App() {
   // TTS Effect
   useEffect(() => {
     if (!isAudioEnabled || !currentAnalysis?.microAssist) {
-        // If disabled or no content, do nothing (or cancel if you want to stop abruptly)
         return;
     }
-
-    // Only speak if the message is different to avoid repetition loops
-    // or if enough time has passed (optional, but checking string equality is safer for now)
     if (currentAnalysis.microAssist !== lastSpokenRef.current) {
-        // Cancel any currently playing speech to avoid queue pileup
         window.speechSynthesis.cancel();
-        
         const utterance = new SpeechSynthesisUtterance(currentAnalysis.microAssist);
-        
-        // Optional: configure voice/rate/pitch
         utterance.rate = 1.0; 
-        
         window.speechSynthesis.speak(utterance);
         lastSpokenRef.current = currentAnalysis.microAssist;
     }
   }, [currentAnalysis, isAudioEnabled]);
 
-  const handleSaveKey = (key: string) => {
-    setUserApiKey(key);
+  const handleSaveKeys = (keys: string[]) => {
+    setApiKeys(keys);
+    setCurrentKeyIndex(0);
     setQuotaExceeded(false);
     setShowKeyModal(false);
     
-    // Visually reset state immediately so user knows we are retrying
     if (captureState.isSharing) {
         setCurrentAnalysis(prev => prev ? ({
             ...prev, 
             state: AnalysisState.UNKNOWN, 
-            microAssist: "Verifying new key...", 
+            microAssist: "Keys updated. Resuming...", 
             observation: "System update...",
             confidence: ConfidenceLevel.MEDIUM
         }) : null);
@@ -102,65 +98,93 @@ function App() {
 
   const intervalRef = useRef<number | null>(null);
 
-  // Analysis Loop
+  // Optimized Analysis Loop with Immediate Retry
   const performAnalysis = useCallback(async () => {
     if (!captureState.isSharing || isAnalyzing) return;
+    if (apiKeys.length === 0) return;
 
     const snapshotBase64 = takeSnapshot();
-    if (!snapshotBase64) {
-      // Snapshot isn't ready yet, skip this cycle seamlessly
-      return;
-    }
+    if (!snapshotBase64) return;
 
     setIsAnalyzing(true);
-    // Pass the goal and key to the service
-    const result = await analyzeScreenCapture(snapshotBase64, goal, userApiKey);
     
-    const newResult: AnalysisResult = {
-      ...result,
-      timestamp: Date.now(),
-      screenshot: snapshotBase64 
-    };
+    let attempts = 0;
+    let successful = false;
+    let tempKeyIndex = currentKeyIndex;
+    let finalResult: AnalysisResult | null = null;
 
-    setCurrentAnalysis(newResult);
-    
-    // Check for Quota or Auth errors
-    // Strictly check microAssist messages set in geminiService
-    const isQuotaError = result.microAssist.includes("Quota") || 
-                         result.microAssist.includes("Key");
+    // Try loop: if Key A fails quota, immediately try Key B
+    while (attempts < apiKeys.length && !successful) {
+        const activeKey = apiKeys[tempKeyIndex];
+        
+        try {
+            const result = await analyzeScreenCapture(snapshotBase64, goal, activeKey);
+            
+            // Success!
+            finalResult = {
+                ...result,
+                timestamp: Date.now(),
+                screenshot: snapshotBase64 
+            };
+            successful = true;
+            
+            // Update the global index to stay on this working key
+            if (tempKeyIndex !== currentKeyIndex) {
+                setCurrentKeyIndex(tempKeyIndex);
+            }
+            setQuotaExceeded(false);
 
-    if (isQuotaError) {
-        setQuotaExceeded(true);
-        // Do not add system errors to history
-    } else {
-        setQuotaExceeded(false);
+        } catch (error: any) {
+            if (error.isQuotaError) {
+                console.warn(`Key Index ${tempKeyIndex} (${activeKey.slice(0,6)}...) exhausted. Rotating...`);
+                tempKeyIndex = (tempKeyIndex + 1) % apiKeys.length;
+                attempts++;
+                
+                // Small delay to prevent tight loop burning CPU or triggering client-side flood protection
+                await new Promise(r => setTimeout(r, 200)); 
+            } else {
+                // Non-quota error (network etc), break loop and show error
+                console.error("Non-quota error in analysis loop:", error);
+                break;
+            }
+        }
+    }
+
+    if (successful && finalResult) {
+        setCurrentAnalysis(finalResult);
         setHistory(prev => {
             const lastItem = prev[0];
             if (lastItem && 
-                lastItem.microAssist === result.microAssist && 
-                lastItem.state === result.state) {
+                lastItem.microAssist === finalResult?.microAssist && 
+                lastItem.state === finalResult?.state) {
                 return prev;
             }
-            if (result.state !== AnalysisState.SMOOTH && result.state !== AnalysisState.UNKNOWN) {
-                return [newResult, ...prev];
+            if (finalResult && finalResult.state !== AnalysisState.SMOOTH && finalResult.state !== AnalysisState.UNKNOWN) {
+                return [finalResult, ...prev];
             }
             return prev;
         });
+    } else if (attempts >= apiKeys.length) {
+        // All keys failed
+        setQuotaExceeded(true);
+        setCurrentAnalysis(prev => prev ? ({
+            ...prev,
+            state: AnalysisState.FRICTION,
+            microAssist: "All API Quotas Exceeded.",
+            observation: "Paused.",
+            confidence: ConfidenceLevel.LOW
+        }) : null);
     }
 
     setIsAnalyzing(false);
-  }, [captureState.isSharing, isAnalyzing, takeSnapshot, goal, userApiKey]);
+  }, [captureState.isSharing, isAnalyzing, takeSnapshot, goal, apiKeys, currentKeyIndex]);
 
-  // Set up the interval for analysis
   useEffect(() => {
     if (captureState.isSharing) {
-      // Execute immediately on mount or when dependencies (like API Key) change
       performAnalysis();
-      // Increase frequency slightly for better responsiveness
       intervalRef.current = window.setInterval(performAnalysis, 5000);
     } else {
       if (intervalRef.current) clearInterval(intervalRef.current);
-      // Stop speaking when capture stops
       window.speechSynthesis.cancel();
     }
 
@@ -175,16 +199,14 @@ function App() {
     <div className="min-h-screen bg-gray-950 flex flex-col relative">
       <Header isLive={captureState.isSharing} />
       
-      {/* Smart Modal logic */}
       {showKeyModal && (
         <ApiKeyModal 
-            onSave={handleSaveKey} 
+            onSave={handleSaveKeys} 
             isError={quotaExceeded}
-            onCancel={(!quotaExceeded && !!userApiKey) ? () => setShowKeyModal(false) : undefined} 
+            onCancel={(!quotaExceeded && apiKeys.length > 0) ? () => setShowKeyModal(false) : undefined} 
         />
       )}
 
-      {/* Draggable HUD Overlay */}
       {captureState.isSharing && (
         <InterventionOverlay 
           result={currentAnalysis}
@@ -199,25 +221,15 @@ function App() {
 
       <main className="flex-1 w-full max-w-4xl mx-auto p-4 md:p-6 lg:p-8 flex flex-col pb-24">
         
-        {/* 
-           Capture Infrastructure 
-           1. Capture Video/Canvas: Must maintain aspect ratio but can be invisible. 
-           2. PiP Video/Canvas: Updated aspect ratio to 4:3 (w-96 h-72 approx) for better text fit.
-        */}
         <div className="fixed top-0 left-0 opacity-0 pointer-events-none -z-50">
-           {/* Primary Capture Elements */}
            <video ref={videoRef} autoPlay playsInline muted className="w-auto h-auto" />
            <canvas ref={canvasRef} />
-           
-           {/* Floating Overlay Elements - 4:3 Aspect Ratio for Text */}
            <video ref={pipVideoRef} autoPlay playsInline muted className="w-[800px] h-[600px]" />
            <canvas ref={pipCanvasRef} />
         </div>
 
-        {/* Main Controls */}
         <div className={`mb-8 flex flex-col items-center justify-center w-full transition-opacity duration-500 ${captureState.isSharing ? 'opacity-50 pointer-events-none' : 'opacity-100'}`}>
            
-           {/* Change Key Button */}
            <div className="w-full flex justify-end mb-2">
              <button 
                 onClick={() => setShowKeyModal(true)}
@@ -225,8 +237,8 @@ function App() {
                 className="group flex items-center gap-2 text-xs font-medium text-gray-500 hover:text-indigo-400 transition-colors"
              >
                 <div className={`w-2 h-2 rounded-full ${quotaExceeded ? 'bg-red-500 animate-pulse' : 'bg-emerald-500'}`} />
-                {quotaExceeded ? 'Quota Exceeded - Change Key' : 'API Key Configured'}
-                <span className="underline decoration-gray-700 group-hover:decoration-indigo-400 underline-offset-2">Change</span>
+                {quotaExceeded ? 'Quota Exceeded - Update Keys' : `${apiKeys.length} API Keys Active`}
+                <span className="underline decoration-gray-700 group-hover:decoration-indigo-400 underline-offset-2">Configure</span>
              </button>
            </div>
 
@@ -239,11 +251,11 @@ function App() {
            {!captureState.isSharing && (
              <button
                onClick={startCapture}
-               disabled={!goal.trim() || !userApiKey.trim()}
-               className={`group relative inline-flex items-center justify-center w-full sm:w-auto px-6 py-3 md:px-8 md:py-4 font-bold text-white transition-all duration-200 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-600 focus:ring-offset-gray-900 ${(!goal.trim() || !userApiKey.trim()) ? 'bg-gray-700 cursor-not-allowed opacity-50' : 'bg-indigo-600 hover:bg-indigo-500 hover:shadow-lg hover:shadow-indigo-500/50'}`}
+               disabled={!goal.trim() || apiKeys.length === 0}
+               className={`group relative inline-flex items-center justify-center w-full sm:w-auto px-6 py-3 md:px-8 md:py-4 font-bold text-white transition-all duration-200 rounded-full focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-indigo-600 focus:ring-offset-gray-900 ${(!goal.trim() || apiKeys.length === 0) ? 'bg-gray-700 cursor-not-allowed opacity-50' : 'bg-indigo-600 hover:bg-indigo-500 hover:shadow-lg hover:shadow-indigo-500/50'}`}
              >
-               {!userApiKey.trim() ? (
-                 <span>Configure API Key</span>
+               {apiKeys.length === 0 ? (
+                 <span>Add API Keys to Start</span>
                ) : !goal.trim() ? (
                  <span>Enter a Goal to Start</span>
                ) : (
@@ -267,13 +279,11 @@ function App() {
            )}
         </div>
 
-        {/* Dashboard Grid */}
         <div className="flex-1 flex flex-col gap-8">
            <AnalysisCard result={currentAnalysis} isLoading={isAnalyzing} />
            <HistoryLog history={history} />
         </div>
         
-        {/* Footer */}
         <div className="mt-12 text-center text-gray-600 text-xs">
           <p>Screen Buddy uses local screen capture processed by AI. Your data is not stored permanently.</p>
         </div>

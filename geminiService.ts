@@ -1,6 +1,3 @@
-
-// @google/genai Coding Guidelines followed: Using GoogleGenAI constructor with named apiKey,
-// calling ai.models.generateContent, and using gemini-3-pro-preview for complex tasks.
 import { GoogleGenAI } from "@google/genai";
 import { AnalysisState, ConfidenceLevel, AnalysisResult, ChatMessage } from '../types';
 import { generateEmbedding, getSimilarContext, logAnalysisToBackend } from './insightService';
@@ -9,8 +6,6 @@ interface AnalysisContext {
   lastObservation: string;
   lastInstruction: string;
 }
-
-const MAX_FILE_TEXT_CHARS = 12000; // Truncate long text files to avoid TPM/token limits
 
 const getSystemInstruction = (goal: string, context?: AnalysisContext, insights?: any[]) => {
   let insightText = "None available.";
@@ -59,6 +54,75 @@ HISTORY CONTEXT:
 - Last Action Taken: "${context?.lastInstruction || 'None'}"
 - Memory Retrieval: ${insightText}
 `;
+};
+
+export const analyzeScreenCapture = async (
+    base64Image: string, 
+    goal: string, 
+    apiKey?: string,
+    previousContext?: AnalysisContext
+): Promise<Omit<AnalysisResult, 'timestamp'>> => {
+  try {
+    const rawKey = apiKey || process.env.API_KEY || "";
+    const key = rawKey.trim();
+    
+    if (!key) {
+      return {
+        state: AnalysisState.ERROR,
+        observation: "Configuration missing.",
+        microAssist: "Please enter an API Key to start.",
+        confidence: ConfidenceLevel.LOW
+      };
+    }
+
+    let similarInsights = [];
+    let embedding = null;
+    const queryText = previousContext?.lastObservation || goal;
+    
+    // Only generate embeddings for Gemini keys for now to save tokens/complexity, 
+    // unless we add an OpenAI embedding endpoint later.
+    if (!key.startsWith('sk-')) {
+        embedding = await generateEmbedding(queryText, key);
+        if (embedding) {
+            similarInsights = await getSimilarContext(embedding);
+        }
+    }
+
+    let result: Omit<AnalysisResult, 'timestamp'>;
+    if (key.startsWith('sk-')) {
+        result = await callOpenAI(base64Image, goal, key, previousContext, similarInsights);
+    } else {
+        result = await callGemini(base64Image, goal, key, previousContext, similarInsights);
+    }
+
+    // Only log vectors if using Gemini embeddings for now
+    if (!key.startsWith('sk-')) {
+        const resultEmbedding = await generateEmbedding(result.observation, key);
+        logAnalysisToBackend({
+            goal,
+            observation: result.observation,
+            microAssist: result.microAssist,
+            state: result.state,
+            confidence: result.confidence,
+            vector: resultEmbedding
+        });
+    }
+
+    return result;
+  } catch (error: any) {
+    if (error.isQuotaError) throw error;
+    // Rethrow OpenAI fetch errors to handle them in App.tsx
+    if (error.message && (error.message.includes('Failed to fetch') || error.message.includes('OpenAI Error'))) {
+        throw error;
+    }
+    
+    return {
+      state: AnalysisState.ERROR,
+      observation: "System unavailable.",
+      microAssist: "Retrying connection...",
+      confidence: ConfidenceLevel.LOW
+    };
+  }
 };
 
 const CHAT_SYSTEM_PROMPTS = `You are ScreenBuddy AI, a highly intelligent, professional, and friendly AI assistant.
@@ -149,73 +213,13 @@ Tone should be:
 - Calm
 - Helpful
 - Structured like ChatGPT
+
+Make the user feel:
+- Understood
+- Guided
+- Confident
+- Technically supported
 `;
-
-// Fix for line 15 error: Exported analyzeScreenCapture to satisfy App.tsx import.
-export const analyzeScreenCapture = async (
-    base64Image: string, 
-    goal: string, 
-    apiKey?: string,
-    previousContext?: AnalysisContext
-): Promise<Omit<AnalysisResult, 'timestamp'>> => {
-  try {
-    const rawKey = apiKey || process.env.API_KEY || "";
-    const key = rawKey.trim();
-    
-    if (!key) {
-      return {
-        state: AnalysisState.ERROR,
-        observation: "Configuration missing.",
-        microAssist: "Please enter an API Key to start.",
-        confidence: ConfidenceLevel.LOW
-      };
-    }
-
-    let similarInsights = [];
-    let embedding = null;
-    const queryText = previousContext?.lastObservation || goal;
-    
-    if (!key.startsWith('sk-')) {
-        embedding = await generateEmbedding(queryText, key);
-        if (embedding) {
-            similarInsights = await getSimilarContext(embedding);
-        }
-    }
-
-    let result: Omit<AnalysisResult, 'timestamp'>;
-    if (key.startsWith('sk-')) {
-        result = await callOpenAI(base64Image, goal, key, previousContext, similarInsights);
-    } else {
-        result = await callGemini(base64Image, goal, key, previousContext, similarInsights);
-    }
-
-    if (!key.startsWith('sk-')) {
-        const resultEmbedding = await generateEmbedding(result.observation, key);
-        logAnalysisToBackend({
-            goal,
-            observation: result.observation,
-            microAssist: result.microAssist,
-            state: result.state,
-            confidence: result.confidence,
-            vector: resultEmbedding
-        });
-    }
-
-    return result;
-  } catch (error: any) {
-    if (error.isQuotaError) throw error;
-    if (error.message && (error.message.includes('Failed to fetch') || error.message.includes('OpenAI Error'))) {
-        throw error;
-    }
-    
-    return {
-      state: AnalysisState.ERROR,
-      observation: "System unavailable.",
-      microAssist: "Retrying connection...",
-      confidence: ConfidenceLevel.LOW
-    };
-  }
-};
 
 export const sendChatMessage = async (
   message: string,
@@ -250,12 +254,7 @@ export const sendChatMessage = async (
         });
         parts.push({ text: `The user has also uploaded an image file: ${file.name}` });
     } else {
-        // Fix for "Request too large" - Truncate text content
-        let fileText = file.data;
-        if (fileText.length > MAX_FILE_TEXT_CHARS) {
-            fileText = fileText.substring(0, MAX_FILE_TEXT_CHARS) + "\n\n[FILE CONTENT TRUNCATED FOR LENGTH TO PREVENT API LIMITS]";
-        }
-        parts.push({ text: `USER UPLOADED FILE: ${file.name}\nCONTENT:\n\`\`\`\n${fileText}\n\`\`\`` });
+        parts.push({ text: `USER UPLOADED FILE: ${file.name}\nCONTENT:\n\`\`\`\n${file.data}\n\`\`\`` });
     }
   }
 
@@ -319,14 +318,9 @@ async function sendOpenAIChatMessage(
                 image_url: { url: `data:${file.mimeType};base64,${file.data}` }
             });
         } else {
-            // Fix for "Request too large" - Truncate text content
-            let fileText = file.data;
-            if (fileText.length > MAX_FILE_TEXT_CHARS) {
-                fileText = fileText.substring(0, MAX_FILE_TEXT_CHARS) + "\n\n[FILE CONTENT TRUNCATED FOR LENGTH TO PREVENT API LIMITS]";
-            }
             userContent.push({
                 type: "text",
-                text: `USER UPLOADED FILE: ${file.name}\nCONTENT:\n\`\`\`\n${fileText}\n\`\`\``
+                text: `USER UPLOADED FILE: ${file.name}\nCONTENT:\n\`\`\`\n${file.data}\n\`\`\``
             });
         }
     }
@@ -374,7 +368,7 @@ async function callOpenAI(
             messages: [
                 { role: "system", content: getSystemInstruction(goal, context, insights) },
                 { role: "user", content: [
-                    { type: "text", text: `Current screen state analysis. Goal: ${goal}.` },
+                    { type: "text", text: `Current screen. Goal: ${goal}. Verify progress and provide next tactical step or clarification question.` },
                     { type: "image_url", image_url: { url: `data:image/jpeg;base64,${cleanBase64}` } }
                 ]}
             ],
@@ -405,7 +399,7 @@ async function callGemini(
       model: 'gemini-3-pro-preview',
       contents: { parts: [
         { inlineData: { data: cleanBase64, mimeType: 'image/jpeg' } },
-        { text: `Analyze screen for goal: ${goal}.` }
+        { text: `Current screen state analysis for goal: ${goal}. Provide the strict formatted output.` }
       ]},
       config: {
         systemInstruction: getSystemInstruction(goal, context, insights),

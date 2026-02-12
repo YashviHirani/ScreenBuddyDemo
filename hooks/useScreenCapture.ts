@@ -10,6 +10,10 @@ export const useScreenCapture = () => {
 
   const videoRef = useRef<HTMLVideoElement | null>(null);
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  
+  // Refs for Diffing
+  const diffCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const prevPixelDataRef = useRef<Uint8ClampedArray | null>(null);
 
   const startCapture = useCallback(async () => {
     try {
@@ -19,14 +23,13 @@ export const useScreenCapture = () => {
         video: {
           width: { ideal: 1920 },
           height: { ideal: 1080 },
-          frameRate: { ideal: 5 }, 
+          frameRate: { ideal: 15 }, // Increased framerate for smoother capture
         },
         audio: false,
       });
 
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
-        // Wait for metadata to load to ensure dimensions are correct
         videoRef.current.onloadedmetadata = () => {
             videoRef.current?.play();
         };
@@ -38,7 +41,6 @@ export const useScreenCapture = () => {
         error: null,
       });
 
-      // Handle stream stop (e.g. user clicks "Stop sharing" in browser UI)
       const track = stream.getVideoTracks()[0];
       if (track) {
           track.onended = () => {
@@ -47,19 +49,18 @@ export const useScreenCapture = () => {
       }
 
     } catch (err: any) {
-      console.error("Error starting screen capture:", err);
-      
+      // Handle specific error types for better UX
       let errorMessage = "Failed to share screen. Please try again.";
-
-      // Handle specific error cases
+      
       if (err.name === 'NotAllowedError') {
-         errorMessage = "Permission denied. You must grant screen recording permissions.";
-      } 
-      else if (err.message && (err.message.includes('permissions policy') || err.message.includes('denied by system'))) {
-         errorMessage = "Screen sharing blocked by browser environment. Try opening this app in a new tab or window.";
-      }
-      else if (err.name === 'NotFoundError') {
-         errorMessage = "No screen video source found.";
+          console.warn("User cancelled screen selection.");
+          errorMessage = "Screen sharing cancelled. Click Activate to try again.";
+      } else if (err.name === 'NotFoundError') {
+          errorMessage = "No screen source found.";
+      } else if (err.name === 'NotReadableError') {
+          errorMessage = "Could not access screen. Check system permissions.";
+      } else {
+          console.error("Error starting screen capture:", err);
       }
 
       setCaptureState(prev => ({
@@ -78,6 +79,7 @@ export const useScreenCapture = () => {
       if (videoRef.current) {
         videoRef.current.srcObject = null;
       }
+      prevPixelDataRef.current = null; // Reset diff history
       return {
         isSharing: false,
         stream: null,
@@ -86,6 +88,7 @@ export const useScreenCapture = () => {
     });
   }, []);
 
+  // Returns string if changed, NULL if static (saves API calls)
   const takeSnapshot = useCallback((): string | null => {
     if (!videoRef.current || !canvasRef.current || !captureState.isSharing) {
       return null;
@@ -93,28 +96,74 @@ export const useScreenCapture = () => {
 
     const video = videoRef.current;
     
-    // Safety check: ensure video has data and dimensions
+    // Safety check
     if (video.readyState < 2 || video.videoWidth === 0 || video.videoHeight === 0) {
-        // console.warn("Video not ready for snapshot yet"); 
         return null;
     }
 
+    // ----------------------------------------------------
+    // SMART DIFFING LOGIC (Visual Hash Check)
+    // ----------------------------------------------------
+    const DIFF_RES = 100; // Increase resolution (100x100) for better detection of small text changes
+    
+    if (!diffCanvasRef.current) {
+        diffCanvasRef.current = document.createElement('canvas');
+        diffCanvasRef.current.width = DIFF_RES; 
+        diffCanvasRef.current.height = DIFF_RES;
+    }
+    
+    const diffCtx = diffCanvasRef.current.getContext('2d', { willReadFrequently: true });
+    if (!diffCtx) return null;
+
+    // Draw small frame
+    diffCtx.drawImage(video, 0, 0, DIFF_RES, DIFF_RES);
+    const currentPixels = diffCtx.getImageData(0, 0, DIFF_RES, DIFF_RES).data;
+
+    // Compare with previous frame
+    if (prevPixelDataRef.current) {
+        let diffScore = 0;
+        const totalPixels = currentPixels.length; 
+        
+        // Check every pixel's RGB
+        for (let i = 0; i < totalPixels; i += 4) {
+            diffScore += Math.abs(currentPixels[i] - prevPixelDataRef.current[i]);     // R
+            diffScore += Math.abs(currentPixels[i+1] - prevPixelDataRef.current[i+1]); // G
+            diffScore += Math.abs(currentPixels[i+2] - prevPixelDataRef.current[i+2]); // B
+        }
+
+        const maxScore = DIFF_RES * DIFF_RES * 3 * 255;
+        const changePercentage = diffScore / maxScore;
+
+        // THRESHOLD: 0.2% (0.002).
+        // Extremely sensitive: Typing a few characters usually triggers > 0.3%.
+        if (changePercentage < 0.002) {
+            return null; // SIGNAL: NO CHANGE
+        }
+    }
+
+    // Store current as previous for next loop
+    prevPixelDataRef.current = new Uint8ClampedArray(currentPixels);
+
+    // ----------------------------------------------------
+    // TOKEN OPTIMIZATION: RESIZE & COMPRESS
+    // ----------------------------------------------------
     const canvas = canvasRef.current;
     const context = canvas.getContext('2d');
-
     if (!context) return null;
 
-    canvas.width = video.videoWidth;
-    canvas.height = video.videoHeight;
+    // Resize to max width 1024px (Better for text reading than 800)
+    const MAX_WIDTH = 1024;
+    const scale = Math.min(1, MAX_WIDTH / video.videoWidth);
     
-    // Draw current frame
+    canvas.width = video.videoWidth * scale;
+    canvas.height = video.videoHeight * scale;
+    
     context.drawImage(video, 0, 0, canvas.width, canvas.height);
 
-    // Compress heavily to save bandwidth/tokens (JPEG, quality 0.6)
-    return canvas.toDataURL('image/jpeg', 0.6);
+    // JPEG 0.75 (Better quality for text OCR)
+    return canvas.toDataURL('image/jpeg', 0.75);
   }, [captureState.isSharing]);
 
-  // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (captureState.stream) {

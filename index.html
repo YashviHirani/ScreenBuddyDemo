@@ -3,42 +3,134 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Screen Buddy</title>
-    <!-- We keep the CDN for Tailwind for simplicity in this setup -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <title>Antigravity | Screen Buddy AI</title>
+    <script src="https://cdn.tailwindcss.com?plugins=typography"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <script>
+      tailwind.config = {
+        theme: {
+          extend: {
+            fontFamily: {
+              sans: ['Inter', 'sans-serif'],
+              mono: ['JetBrains Mono', 'monospace'],
+            },
+            animation: {
+              'pulse-slow': 'pulse 4s cubic-bezier(0.4, 0, 0.6, 1) infinite',
+              'shimmer': 'shimmer 2s linear infinite',
+              'float': 'float 6s ease-in-out infinite',
+              'scan': 'scan 3s linear infinite',
+            },
+            keyframes: {
+              shimmer: {
+                '0%': { backgroundPosition: '-200% 0' },
+                '100%': { backgroundPosition: '200% 0' },
+              },
+              float: {
+                '0%, 100%': { transform: 'translateY(0)' },
+                '50%': { transform: 'translateY(-10px)' },
+              },
+              scan: {
+                '0%': { top: '-10%' },
+                '100%': { top: '110%' },
+              }
+            }
+          }
+        }
+      }
+    </script>
     <style>
-      body { font-family: 'Inter', sans-serif; }
-      /* Custom scrollbar for webkit */
-      ::-webkit-scrollbar {
-        width: 8px;
-        height: 8px;
+      :root {
+        --accent: #6366f1;
       }
-      ::-webkit-scrollbar-track {
-        background: #1f2937; 
+      body { 
+        font-family: 'Inter', sans-serif;
+        background-color: #020617;
+        color: #f8fafc;
+        overflow-x: hidden;
       }
-      ::-webkit-scrollbar-thumb {
-        background: #4b5563; 
-        border-radius: 4px;
+      
+      /* Mesh Gradient Background */
+      .mesh-bg {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: -2;
+        background: radial-gradient(circle at 0% 0%, #1e1b4b 0%, transparent 50%),
+                    radial-gradient(circle at 100% 100%, #312e81 0%, transparent 50%),
+                    radial-gradient(circle at 50% 50%, #0f172a 0%, #020617 100%);
       }
-      ::-webkit-scrollbar-thumb:hover {
-        background: #6b7280; 
+
+      /* Cyber Grid Overlay */
+      .grid-overlay {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        z-index: -1;
+        background-image: 
+          linear-gradient(to right, rgba(99, 102, 241, 0.05) 1px, transparent 1px),
+          linear-gradient(to bottom, rgba(99, 102, 241, 0.05) 1px, transparent 1px);
+        background-size: 40px 40px;
+        mask-image: radial-gradient(circle at 50% 50%, black, transparent 80%);
       }
+
+      /* Frosted Glass */
+      .glass {
+        background: rgba(15, 23, 42, 0.6);
+        backdrop-filter: blur(12px) saturate(180%);
+        -webkit-backdrop-filter: blur(12px) saturate(180%);
+        border: 1px solid rgba(255, 255, 255, 0.1);
+      }
+
+      .glass-card {
+        background: rgba(30, 41, 59, 0.4);
+        backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.08);
+        box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+      }
+
+      /* Custom scrollbar */
+      ::-webkit-scrollbar { width: 6px; height: 6px; }
+      ::-webkit-scrollbar-track { background: transparent; }
+      ::-webkit-scrollbar-thumb { background: rgba(99, 102, 241, 0.3); border-radius: 10px; }
+      ::-webkit-scrollbar-thumb:hover { background: rgba(99, 102, 241, 0.5); }
+
+      .custom-scrollbar { scrollbar-width: thin; scrollbar-color: rgba(99, 102, 241, 0.3) transparent; }
+
+      /* Animations */
+      @keyframes slideUp {
+        from { opacity: 0; transform: translateY(20px); }
+        to { opacity: 1; transform: translateY(0); }
+      }
+      .animate-slide-up { animation: slideUp 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
     </style>
   <script type="importmap">
 {
   "imports": {
-    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.4",
-    "vite": "https://esm.sh/vite@^7.3.1",
-    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
-    "@google/genai": "https://esm.sh/@google/genai@^1.40.0",
     "react/": "https://esm.sh/react@^19.2.4/",
-    "react": "https://esm.sh/react@^19.2.4"
+    "react": "https://esm.sh/react@^19.2.4",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react-markdown": "https://esm.sh/react-markdown@9?bundle",
+    "@google/genai": "https://esm.sh/@google/genai@^1.41.0",
+    "vite": "https://esm.sh/vite@^7.3.1",
+    "axios": "https://esm.sh/axios@^1.13.5",
+    "redis": "https://esm.sh/redis@^5.10.0",
+    "dotenv": "https://esm.sh/dotenv@^17.2.4",
+    "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.4",
+    "express": "https://esm.sh/express@^5.2.1",
+    "mongoose": "https://esm.sh/mongoose@^9.2.1",
+    "cors": "https://esm.sh/cors@^2.8.6",
+    "@qdrant/js-client-rest": "https://esm.sh/@qdrant/js-client-rest@^1.16.2"
   }
 }
 </script>
 </head>
-  <body class="bg-gray-950 text-gray-100 antialiased overflow-y-auto">
+  <body>
+    <div class="mesh-bg"></div>
+    <div class="grid-overlay"></div>
     <div id="root"></div>
     <script type="module" src="/index.tsx"></script>
   </body>

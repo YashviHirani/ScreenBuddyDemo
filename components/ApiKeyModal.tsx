@@ -46,7 +46,13 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onSave, onCancel, isEr
              {isError ? 'Update API Keys' : 'Configure API Key Pool'}
            </h2>
            <p className="mt-2 text-sm text-gray-400 leading-relaxed">
-             Add multiple Google Gemini API Keys (one per line). Screen Buddy will automatically rotate through them to ensure uninterrupted service and faster performance.
+             Supported Providers:
+             <br/>
+             • <strong>Google Gemini</strong> (Standard keys)
+             <br/>
+             • <strong>OpenAI ChatGPT</strong> (Starts with <code>sk-</code>)
+             <br/><br/>
+             Screen Buddy automatically detects the provider. You can even mix them to ensure uninterrupted service!
            </p>
         </div>
 
@@ -59,24 +65,31 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({ onSave, onCancel, isEr
              <textarea 
                value={inputContent}
                onChange={(e) => setInputContent(e.target.value)}
-               placeholder={`AIzaSy...1\nAIzaSy...2\nAIzaSy...3`}
+               placeholder={`AIzaSy... (Gemini)\nsk-proj... (OpenAI)`}
                rows={6}
                className={`w-full bg-gray-950 border text-white rounded-lg px-4 py-3 outline-none transition-all font-mono text-xs placeholder-gray-700 resize-none ${isError ? 'border-red-500/50 focus:ring-red-500 focus:border-red-500' : 'border-gray-700 focus:ring-indigo-500 focus:border-indigo-500 ring-2 ring-transparent'}`}
                autoFocus
              />
              <div className="mt-3 flex justify-between items-center">
                <span className="text-xs text-gray-600">Keys stored locally. Never sent to us.</span>
-               <a 
-                 href="https://aistudio.google.com/app/apikey" 
-                 target="_blank" 
-                 rel="noreferrer"
-                 className="text-xs font-medium text-indigo-400 hover:text-indigo-300 hover:underline flex items-center gap-1"
-               >
-                 Get free keys
-                 <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                 </svg>
-               </a>
+               <div className="flex gap-4">
+                   <a 
+                     href="https://aistudio.google.com/app/apikey" 
+                     target="_blank" 
+                     rel="noreferrer"
+                     className="text-xs font-medium text-indigo-400 hover:text-indigo-300 hover:underline"
+                   >
+                     Get Gemini Key
+                   </a>
+                   <a 
+                     href="https://platform.openai.com/api-keys" 
+                     target="_blank" 
+                     rel="noreferrer"
+                     className="text-xs font-medium text-emerald-400 hover:text-emerald-300 hover:underline"
+                   >
+                     Get OpenAI Key
+                   </a>
+               </div>
              </div>
            </div>
         </div>

@@ -15,119 +15,132 @@ export const usePipOverlay = (currentResult: AnalysisResult | null) => {
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Standard 4:3 Aspect Ratio
+    // WIDE SUBTITLE BAR ASPECT RATIO - Perfect for bottom of screen
     const width = 800; 
-    const height = 600; 
+    const height = 150; 
     
     // Ensure canvas size
     if (canvas.width !== width) canvas.width = width;
     if (canvas.height !== height) canvas.height = height;
 
-    // Background
-    ctx.fillStyle = '#111827'; // gray-900
+    // Background - Dark Gray
+    ctx.fillStyle = '#0f172a'; // slate-950
     ctx.fillRect(0, 0, width, height);
 
     if (!currentResult) {
       // Waiting State
-      ctx.fillStyle = '#6B7280';
+      ctx.fillStyle = '#1e293b'; 
+      ctx.fillRect(0, 0, width, height);
+      
+      ctx.fillStyle = '#94a3b8'; 
       ctx.font = 'bold 32px sans-serif';
-      ctx.fillText('Screen Buddy Active', 40, 300);
-      ctx.font = '24px sans-serif';
-      ctx.fillText('Waiting for analysis...', 40, 350);
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('Screen Buddy Active', width / 2, height / 2 - 20);
+      
+      ctx.font = '20px sans-serif';
+      ctx.fillText('Waiting for next step...', width / 2, height / 2 + 25);
     } else {
-      // Active State
-      let bgColor = '#374151'; // default gray
-      let accentColor = '#6366f1'; // indigo
+      // Active State Colors
+      let accentColor = '#6366f1'; 
+      let stateLabel = currentResult.state.toUpperCase();
       
       switch (currentResult.state) {
         case AnalysisState.COMPLETED: 
-          bgColor = '#083344'; // cyan-950
           accentColor = '#22d3ee'; // cyan-400
           break;
         case AnalysisState.DISTRACTED: 
-          bgColor = '#450a0a'; // red-950
           accentColor = '#f87171'; // red-400
+          stateLabel = "DISTRACTED - FOCUS!";
           break;
         case AnalysisState.FRICTION: 
         case AnalysisState.ERROR:
-          bgColor = '#451a03'; // amber-950
           accentColor = '#fbbf24'; // amber-400
           break;
         case AnalysisState.SMOOTH: 
-          bgColor = '#064e3b'; // emerald-950
           accentColor = '#34d399'; // emerald-400
           break;
       }
 
-      // Draw Color Background
-      ctx.fillStyle = bgColor;
-      ctx.fillRect(0, 0, width, height);
+      // 1. Progress Bar / Status Line (Top)
+      ctx.fillStyle = accentColor;
+      ctx.fillRect(0, 0, width, 8); // Top bar
+
+      ctx.textAlign = 'left';
+      ctx.textBaseline = 'top';
+
+      // 2. State Label
+      ctx.fillStyle = accentColor;
+      ctx.font = 'bold 18px sans-serif';
+      ctx.fillText(stateLabel, 24, 25);
       
-      // Left Accent Bar
-      ctx.fillStyle = accentColor;
-      ctx.fillRect(0, 0, 20, height);
-
-      // State Text
-      ctx.fillStyle = accentColor;
-      ctx.font = 'bold 32px sans-serif';
-      ctx.fillText(currentResult.state.toUpperCase(), 50, 60);
-
-      // Micro Assist Text (Wrapping)
+      // 3. Micro Assist Text - HUGE & CENTERED VISUALLY
       ctx.fillStyle = '#ffffff';
-      ctx.font = 'bold 40px sans-serif'; 
+      ctx.font = 'bold 42px sans-serif'; 
       
       const text = currentResult.microAssist;
-      const words = text.split(' ');
-      let line = '';
-      let y = 140; 
-      const lineHeight = 55;
-
-      for(let n = 0; n < words.length; n++) {
-        const testLine = line + words[n] + ' ';
-        const metrics = ctx.measureText(testLine);
-        const testWidth = metrics.width;
-        
-        if (testWidth > (width - 90) && n > 0) {
-          ctx.fillText(line, 50, y);
-          line = words[n] + ' ';
-          y += lineHeight;
-        } else {
-          line = testLine;
-        }
+      // Simple text fitting
+      let fontSize = 42;
+      ctx.font = `bold ${fontSize}px sans-serif`;
+      while (ctx.measureText(text).width > (width - 50)) {
+          fontSize -= 2;
+          ctx.font = `bold ${fontSize}px sans-serif`;
       }
-      ctx.fillText(line, 50, y);
+      
+      // Draw Action Text
+      ctx.fillText(text, 24, 55);
 
-      // Observation
-      if (y < height - 60) {
-          ctx.fillStyle = '#9ca3af'; 
-          ctx.font = 'italic 24px sans-serif';
-          const obs = "Obs: " + currentResult.observation;
-          ctx.fillText(obs, 50, height - 30);
+      // 4. Observation (Subtext)
+      ctx.fillStyle = '#94a3b8'; 
+      ctx.font = '20px sans-serif';
+      const obs = currentResult.observation;
+      let displayObs = obs;
+      if (ctx.measureText(displayObs).width > (width - 250)) {
+         while(ctx.measureText(displayObs + '...').width > (width - 250) && displayObs.length > 0) {
+             displayObs = displayObs.slice(0, -1);
+         }
+         displayObs += '...';
       }
+      ctx.fillText(displayObs, 24, 110);
+      
+      // 5. Logo / Brand
+      ctx.fillStyle = '#334155';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.textAlign = 'right';
+      ctx.fillText('SCREEN BUDDY', width - 24, 115);
     }
     
-    // Tiny ticker pixel to force visual change for the stream
-    // This ensures the video stream sends frames
+    // Pixel ticker to force video update (Required for captureStream to emit frames)
     const time = Date.now();
-    ctx.fillStyle = (time % 1000 < 500) ? '#1f2937' : '#111827';
+    ctx.fillStyle = (time % 1000 < 500) ? '#0f172a' : '#1e293b';
     ctx.fillRect(width - 1, height - 1, 1, 1);
 
   }, [currentResult]);
 
-  // Initial Draw
+  // ALWAYS RUN A SLOW HEARTBEAT
+  // This ensures the canvas is drawn to at least once and keeps the stream "alive" even before PiP is clicked.
+  // Without this, the canvas might be blank when the user clicks "Float", causing a dead stream.
   useEffect(() => {
+    // Initial draw
     drawCanvas();
+    
+    // Slow loop (2fps) when not active, just to keep canvas fresh
+    const id = setInterval(() => {
+      drawCanvas();
+    }, 500);
+
+    return () => clearInterval(id);
   }, [drawCanvas]);
 
-  // Continuous Draw Loop
-  // Keeps the stream alive. 100ms = 10fps visual update, plenty for UI.
+  // FAST LOOP when PiP IS active
   useEffect(() => {
     if (isPipActive) {
+      // Clear the slow loop logic implicitly because the component logic handles it, 
+      // but here we set a faster interval that overlaps.
       intervalRef.current = window.setInterval(() => {
         drawCanvas();
-      }, 100);
+      }, 50); // 20fps for smoother UI
     }
-
     return () => {
       if (intervalRef.current) clearInterval(intervalRef.current);
     };
@@ -137,32 +150,56 @@ export const usePipOverlay = (currentResult: AnalysisResult | null) => {
     const video = pipVideoRef.current;
     const canvas = pipCanvasRef.current;
 
-    if (!video || !canvas) return;
+    if (!video || !canvas) {
+        console.error("Refs missing");
+        return;
+    }
 
     try {
       if (document.pictureInPictureElement) {
         await document.exitPictureInPicture();
         setIsPipActive(false);
       } else {
-        // 1. Draw immediately
+        // 1. Force a draw immediately
         drawCanvas();
 
-        // 2. Setup Stream (Simple captureStream for Mac compatibility)
+        // 2. Setup Stream if needed
         if (!video.srcObject) {
-            // @ts-ignore - standard API
-            const stream = canvas.captureStream ? canvas.captureStream() : (canvas as any).mozCaptureStream();
+            // @ts-ignore
+            const stream = canvas.captureStream(30);
             video.srcObject = stream;
         }
 
-        // 3. Play & Request PiP
+        // 3. Play securely
         video.muted = true;
-        await video.play();
+        
+        try {
+            await video.play();
+        } catch (playError) {
+            console.warn("Play failed, trying again", playError);
+            // Sometimes resetting the stream helps
+            // @ts-ignore
+            const stream = canvas.captureStream(30);
+            video.srcObject = stream;
+            await video.play();
+        }
+
+        // 4. Request PiP
+        // @ts-ignore
         await video.requestPictureInPicture();
         setIsPipActive(true);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error("Failed to toggle PiP:", error);
       setIsPipActive(false);
+      
+      // Fallback for user
+      if (error.name === 'NotAllowedError') {
+          // This usually means the user didn't interact enough, or browser blocked it.
+          alert("Floating window blocked. Please try clicking again.");
+      } else {
+          alert(`Error: ${error.message}. Try refreshing if this persists.`);
+      }
     }
   };
 

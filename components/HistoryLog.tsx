@@ -23,13 +23,13 @@ export const HistoryLog: React.FC<HistoryLogProps> = ({ history }) => {
       
       <h3 className="text-sm font-bold text-gray-500 uppercase tracking-wider mb-4 px-2 flex items-center gap-2">
         <svg className="w-4 h-4 text-gray-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
         </svg>
-        Recent Activity
+        Session Steps
       </h3>
       
       <div className="space-y-3">
-        {history.slice(0, 5).map((item, index) => (
+        {history.slice(0, 8).map((item, index) => (
           <div 
             key={item.timestamp} 
             className="group relative bg-gray-900/40 border border-gray-800/60 rounded-xl p-4 flex flex-col sm:flex-row sm:items-center gap-3 sm:gap-4 transition-all duration-300 hover:bg-gray-800/80 hover:border-gray-700 hover:shadow-lg hover:-translate-y-0.5 history-item-enter"
@@ -37,16 +37,16 @@ export const HistoryLog: React.FC<HistoryLogProps> = ({ history }) => {
           >
             {/* Status Dot */}
             <div className="flex items-start sm:items-center gap-4 flex-1 min-w-0">
-                <div className={`mt-1.5 sm:mt-0 w-2.5 h-2.5 shrink-0 rounded-full transition-all duration-300 group-hover:scale-110 ${
-                  item.state === AnalysisState.COMPLETED ? 'bg-cyan-500 shadow-[0_0_8px_rgba(6,182,212,0.6)] group-hover:shadow-[0_0_12px_rgba(6,182,212,0.8)]' :
-                  item.state === AnalysisState.SMOOTH ? 'bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.4)]' :
-                  item.state === AnalysisState.FRICTION ? 'bg-amber-500 shadow-[0_0_6px_rgba(245,158,11,0.4)]' :
-                  item.state === AnalysisState.ERROR ? 'bg-rose-500 shadow-[0_0_6px_rgba(244,63,94,0.4)]' :
-                  'bg-indigo-500 shadow-[0_0_6px_rgba(99,102,241,0.4)]'
-                }`} />
+                <div className={`mt-1.5 sm:mt-0 w-6 h-6 shrink-0 rounded-full flex items-center justify-center text-[10px] font-bold border ${
+                  item.state === AnalysisState.COMPLETED ? 'bg-cyan-900 text-cyan-300 border-cyan-700' :
+                  item.state === AnalysisState.SMOOTH ? 'bg-emerald-900 text-emerald-300 border-emerald-700' :
+                  'bg-gray-800 text-gray-400 border-gray-600'
+                }`}>
+                    {history.length - index}
+                </div>
                 
                 <div className="flex-1 min-w-0 space-y-0.5">
-                  <p className="text-sm font-medium text-gray-300 truncate group-hover:text-white transition-colors duration-200">
+                  <p className="text-sm font-bold text-gray-200 truncate group-hover:text-white transition-colors duration-200">
                     {item.microAssist}
                   </p>
                   <p className="text-xs text-gray-500 truncate group-hover:text-gray-400 transition-colors duration-200">
